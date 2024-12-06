@@ -23,7 +23,7 @@ except Exception as e:
     logger.error("Inside none of question generator.")
     print(f"Error loading model: {e}")
 
-@app.route('/upload', methods=['POST'])
+@app.route('/upload-curriculum', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
         return jsonify({'error': 'No file part in the request'}), 400
