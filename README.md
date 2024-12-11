@@ -110,16 +110,21 @@ This application is designed to:
    - Download the generated question bank in Excel or PDF format.  
 
 ---
-
 ## **API Endpoints**  
 
-| **Endpoint**           | **Method** | **Description**                           |  
-|-------------------------|------------|-------------------------------------------|  
-| `/upload-curriculum`    | POST       | Upload curriculum file (CSV/Excel).       |  
-| `/generate-questions`   | POST       | Generate question bank based on inputs.   |  
-| `/get-topics`           | GET        | Fetch topics from uploaded curriculum.    |  
-| `/download-questions`   | GET        | Download the generated question bank.     |  
-
+| **Endpoint**           | **Method** | **Description**                                                               |  
+|------------------------|------------|-------------------------------------------------------------------------------|  
+| /upload-curriculum      | POST       | Upload curriculum file (CSV/Excel).                                           |  
+| /generate-questions     | POST       | Generate question bank based on inputs.                                       |  
+| /get-topics             | GET        | Fetch topics from uploaded curriculum.                                        |  
+| /download-questions     | GET        | Download the generated question bank.                                         |  
+| /get-feedback           | GET        | Retrieve all feedback from users.                                             |  
+| /submit-feedback        | POST       | Submit feedback from a user, including rating and comments.                   |  
+| /add-user               | POST       | Adds a new user with a specified email and role.                              |  
+| /get-users              | GET        | Retrieves all users in the database.                                          |  
+| /remove-user            | DELETE     | Removes a user by their ID.                                                   |  
+| /assign-role            | PUT        | Updates a user's role.                                                        |  
+| /monitor-user           | GET        | Checks if a user exists based on email.                                       |
 ---
 
 ## **Technologies Used**  
