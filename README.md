@@ -134,7 +134,9 @@ This application is designed to:
 - **File Storage**: AWS S3/Azure Blob Storage.  
 
 ---
-![image](https://github.com/user-attachments/assets/c834a626-0305-4113-a356-1183e0bbcd34)
+![image](https://github.com/user-attachments/assets/932be17a-5c92-4d71-b86b-5946c7e23539)
+
+![image](https://github.com/user-attachments/assets/9004194e-cc0b-4f6b-8775-a8c0f9771cb9)
 
 ## **Contributing**  
 1. Fork the repository.  
