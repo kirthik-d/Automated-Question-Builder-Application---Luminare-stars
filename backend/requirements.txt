@@ -1,0 +1,12 @@
+flask
+transformers
+torch
+PyPDF2
+jwt
+requests
+sqlite3
+flask_cors
+flask_socketio
+psycopg2-binary 
+SQLAlchemy
+flask_mail

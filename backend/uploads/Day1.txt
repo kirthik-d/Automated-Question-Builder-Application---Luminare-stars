@@ -1,0 +1,12 @@
+Sql Server
+-- it's developed by Microsoft
+-- It's software program which is providing the services to interact with databases
+-- Environment to create database
+-- Supports componenets and services to the business intelligence platform to generate the reports
+and work on data analysis
+
+Components of Sql Server
+Database Engine
+Analysis Services
+Reporting services
+Integration services
