@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import ExportToPDF from './ExportToPDF.js';
-import ExportToCSV from './ExportToCSV.js';
 
-function UploadCurriculum() {
+function UploadCurriculum({ setActiveTab }) {
   const [file, setFile] = useState(null);
-  const [questions, setQuestions] = useState([]);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
   const [error, setError] = useState('');
+  const [topics, setTopics] = useState([]);
+  const [subtopics, setSubtopics] = useState([]);
 
   const handleUpload = async (e) => {
     e.preventDefault();
@@ -15,16 +15,26 @@ function UploadCurriculum() {
 
     try {
       setError('');
-      const response = await axios.post('http://127.0.0.1:5000/upload', formData, {
+      setUploadSuccess(false);
+      const response = await axios.post('http://localhost:5000/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
-        },
+        }
       });
-      console.log(response)
-      setQuestions(response.data.questions); // Assuming the API returns generated questions.
+      console.log(response);
+      setTopics(response.data.topics);
+      setSubtopics(response.data.subtopics);
+      console.log(response.data.topics);
+      console.log(response.data.subtopics);
+      setUploadSuccess(true); // Mark success after upload
     } catch (err) {
-      setError(err.response?.data?.error || 'An error occurred');
+      setError(err.response?.data?.error || 'An error occurred while uploading the file.');
     }
+  };
+
+  const handleGenerateQuestionBank = () => {
+    // Set the active tab to 'generateQuestionBank' after upload success
+    setActiveTab('generateQuestionBank', { topics, subtopics });
   };
 
   return (
@@ -35,6 +45,7 @@ function UploadCurriculum() {
           <div className="mb-4">
             <input
               type="file"
+              accept=".csv, .xls, .xlsx"
               onChange={(e) => setFile(e.target.files[0])}
               className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -49,25 +60,15 @@ function UploadCurriculum() {
 
         {error && <p className="text-red-500 mb-4">{error}</p>}
 
-        {questions.length > 0 && (
-          <div>
-            <h2 className="text-xl font-semibold mb-4 text-gray-700">Generated Questions</h2>
-            <ul className="space-y-4">
-              {questions.map((q, idx) => (
-                <li key={idx} className="p-4 bg-gray-100 rounded-md shadow-sm">
-                  <strong className="block text-gray-800 mb-2">{q.question}</strong>
-                  <ul className="pl-5 list-disc text-gray-600">
-                    {q.options.map((opt, i) => (
-                      <li key={i}>{opt}</li>
-                    ))}
-                  </ul>
-                </li>
-              ))}
-            </ul>
-            <div className="mt-6 flex gap-4">
-              <ExportToCSV questions={questions} />
-              <ExportToPDF questions={questions} />
-            </div>
+        {uploadSuccess && (
+          <div className="mb-4">
+            <p className="text-green-500">File uploaded successfully!</p>
+            <button
+              onClick={handleGenerateQuestionBank} // Call the function to change tab
+              className="inline-block mt-4 text-blue-500 hover:underline"
+            >
+              Go to Generate Question Bank
+            </button>
           </div>
         )}
       </div>

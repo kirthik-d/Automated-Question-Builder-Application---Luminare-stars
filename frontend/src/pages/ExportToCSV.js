@@ -1,30 +1,43 @@
-import React from 'react';
-import { saveAs } from 'file-saver';
+import React from "react";
+import { saveAs } from "file-saver";
+import * as Papa from "papaparse";
 
-const ExportToCSV = ({ questions }) => {
+function ExportToCSV({ questions }) {
   const exportToCSV = () => {
-    // Check if there are any questions with options (not None or empty)
-    const hasOptions = questions.some(q => q.options && q.options.length > 0);
+    if (!questions || questions.length === 0) {
+      alert("No questions available to export.");
+      return;
+    }
 
-    // Create the CSV content based on whether options are present
-    const csvContent = [
-      ['Question', ...(hasOptions ? ['Options'] : [])], 
-      ...questions.map((q) => [
-        q.question,
-        ...(hasOptions ? [q.options.join(' | ')] : []) 
-      ])
-    ].map((row) => row.join(",")).join("\n");
+    // Prepare CSV data
+    const csvData = questions.map((question) => {
+      const options = question.options ? question.options.split('|') : []; // Split options by delimiter '|'
+      return {
+        ID: question.id,
+        "Question Text": question.question_text,
+        "Option A": options[0] || "N/A",
+        "Option B": options[1] || "N/A",
+        "Option C": options[2] || "N/A",
+        "Option D": options[3] || "N/A",
+        "Correct Answer": question.correct_answer,
+        Difficulty: question.difficulty || "N/A",
+        Topics: question.topics || "N/A",
+      };
+    });
 
-    // Create a Blob and save as CSV file
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    saveAs(blob, 'questions.csv');
+    const csv = Papa.unparse(csvData);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    saveAs(blob, "questions.csv");
   };
 
   return (
-    <button onClick={exportToCSV} className="bg-green-500 text-white py-2 px-4 rounded-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-400">
+    <button
+      onClick={exportToCSV}
+      className="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600"
+    >
       Export to CSV
     </button>
   );
-};
+}
 
 export default ExportToCSV;

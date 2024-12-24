@@ -5,8 +5,6 @@ import { useAuth } from "./useAuth"; // Import the useAuth hook
 const ProtectedRoute = ({ children, allowedRoles }) => {
     const { isAuthenticated, userRole, loading } = useAuth(); // Get auth state
     const [isReady, setIsReady] = useState(false); // Track if auth state is ready
-    console.log(isAuthenticated, "aaa");
-    console.log(userRole, "bb");
     // This effect ensures the route will only render after isAuthenticated and userRole are updated
     useEffect(() => {
         if (!loading && (isAuthenticated || userRole)) {

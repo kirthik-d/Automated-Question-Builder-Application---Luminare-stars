@@ -9,8 +9,8 @@ const msalConfig = {
         redirectUri: "http://localhost:3000",
     },
     cache: {
-        cacheLocation: "localStorage", // Store tokens in localStorage
-        storeAuthStateInCookie: true, // Recommended for IE11 or Edge
+        cacheLocation: "localStorage",
+        storeAuthStateInCookie: true, 
     },
 };
 

@@ -10,3 +10,7 @@ flask_socketio
 psycopg2-binary 
 SQLAlchemy
 flask_mail
+openpyxl
+fpdf
+flask-jwt-extended
+
