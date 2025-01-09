@@ -1,6 +1,12 @@
 import { useMsal } from "@azure/msal-react";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { io } from "socket.io-client";
+
+// Initialize the Socket.IO client
+const socket = io('http://127.0.0.1:5000', {
+  query: { user_id: `user_${Math.random().toString(36).substring(7)}`, user_email: localStorage.getItem("user_email")},  
+});
 
 export const useAuth = () => {
   const { instance, accounts } = useMsal();
@@ -76,7 +82,7 @@ export const useAuth = () => {
       });
   
       const token = tokenResponse.idToken;
-      localStorage.setItem("authToken", token);
+      localStorage.setItem("authToken", token); 
       localStorage.setItem("user_email", account.username);
       console.log(account)
       const response = await fetch("http://127.0.0.1:5000/validate", {
@@ -96,10 +102,30 @@ export const useAuth = () => {
       console.log("Fetched role:", role);  
       setUserRole(role);
       localStorage.setItem("userRole", role); 
+
+      // Emit a log event on successful role retrieval
+      socket.emit("log_event", {
+        message: `User ${account.username} fetched role successfully: ${role}`,
+        level: "INFO",
+      });
+
+      console.log("Emitting log_event:", {
+        message: `User ${account.username} fetched role successfully: ${role}`,
+        level: "INFO",
+      });
     } catch (error) {
       console.error("Error fetching user role:", error);
       setUserRole("Employee");  
       localStorage.setItem("userRole", "Employee");  
+
+      // Emit a log event on error
+      socket.emit("log_event", {
+        message: `Error fetching role for user: ${error.message}`,
+        level: "ERROR",
+      });
+
+      
+      
     } finally {
       setLoading(false);
     }

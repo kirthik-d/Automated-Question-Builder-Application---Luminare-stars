@@ -1,18 +1,17 @@
 import React from "react";
 import { BrowserRouter as Router, Routes, Route, useLocation } from "react-router-dom";
-import Home from "./pages/Home";
-import AdminDashboard from './pages/AdminDashboard';
-import TrainerDashboard from './pages/TrainerDashboard';
-import EmployeeDashboard from './pages/EmployeeDashboard';
+import Navigation from "./pages/main dashboard/Navigation";
+import AdminDashboard from './pages/admin/AdminDashboard';
+import TrainerDashboard from './pages/trainer/TrainerDashboard';
+import EmployeeDashboard from './pages/employee/EmployeeDashboard';
 import ProtectedRoute from "./auth/ProtectedRoute";
-import MainDashboard from "./pages/MainDashboard";
-import UnAuthorizedPage from "./pages/UnAuthorizedPage";
-import ContactUs from "./pages/ContactUs";
-import GenerateQuestionBank from "./pages/GenerateQuestionBank";
-import FileDownloader from "./pages/FileDownloader";
-import Assessment from "./pages/Assessment";
-import GenerateCertificate from "./pages/GenerateCertificate";
-
+import MainDashboard from "./pages/main dashboard/MainDashboard";
+import UnAuthorizedPage from "./pages/unauthorized/UnAuthorizedPage";
+import ContactUs from "./pages/main dashboard/ContactUs";
+import GenerateQuestionBank from "./pages/trainer/GenerateQuestionBank";
+import FileDownloader from "./pages/main dashboard/FileDownloader";
+import Assessment from "./pages/employee/Assessment";
+import GenerateCertificate from "./pages/employee/GenerateCertificate"; 
 const AppLayout = ({ children }) => {
     const location = useLocation();
 
@@ -23,7 +22,7 @@ const AppLayout = ({ children }) => {
   
     return (
       <>
-        {!isExcluded && <Home />}  
+        {!isExcluded && <Navigation />}  
         {children}
       </>
     );

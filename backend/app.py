@@ -23,35 +23,27 @@ import uuid
 from fpdf import FPDF
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy.orm import aliased
-from sqlalchemy import func, and_
+from sqlalchemy import func, and_, event
 import io
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 import tempfile
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+import math
+import time
+import pytz
+import threading
+import psutil
+import numpy as np
+from config import Config
 
 # Set up logging to output to the console
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-UPLOAD_FOLDER = 'uploads'
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
-
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-ALLOWED_EXTENSIONS = {'csv', 'xls', 'xlsx'}
-HUGGINGFACE_TOKEN = "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" #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, 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
-NVIDIA_TOKEN = "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"
-#nvidia api key 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
-
-# Set up the connection string for Supabase PostgreSQL
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql+psycopg2://postgres.arvyyohqdhsejhxhtekr:21HZ35yFlAMTLZF6@aws-0-ap-south-1.pooler.supabase.com:6543/postgres'   
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['MAIL_SERVER'] = 'smtp.gmail.com' 
-app.config['MAIL_PORT'] = 587
-app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = 'kirthikd0212@gmail.com'   
-app.config['MAIL_PASSWORD'] = 'xxxxxx'   
+app.config.from_object(Config)   
 mail = Mail(app)
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
@@ -103,7 +95,6 @@ class Question(db.Model):
             'file_url': self.file_url
         }
 
-
 # Define the QuestionBank model
 class QuestionBank(db.Model):
     __tablename__ = 'question_banks'
@@ -120,6 +111,18 @@ class QuestionBank(db.Model):
     max_attempts = db.Column(db.Integer)
     status = db.Column(db.String, default="Generated")  
     estimated_time = db.Column(db.Integer, default=60)
+    embedding = db.Column(db.PickleType)
+
+    @staticmethod
+    def generate_and_store_embedding(mapper, connection, target): 
+        if not target.embedding and target.technologies:
+            embedding = generate_embedding(target.technologies)
+            if isinstance(embedding, np.ndarray):
+                embedding = embedding.tolist()
+            target.embedding = embedding  
+
+# Hook into the insert event for QuestionBank
+event.listen(QuestionBank, 'before_insert', QuestionBank.generate_and_store_embedding)
 
 class AssessmentResults(db.Model):
     __tablename__ = "assessment_results"
@@ -139,10 +142,70 @@ class Feedback(db.Model):
     feedback = db.Column(db.Text, nullable=True)
     rating = db.Column(db.Integer, nullable=False)
     created_at = db.Column(db.DateTime, default=db.func.current_timestamp())
-    transaction_id = db.Column(
-        db.String(255), 
-        nullable=False
+    transaction_id = db.Column(db.String(255), nullable=True)  # Nullable for learning material feedback
+    material_id = db.Column(db.Integer, nullable=True)  # Nullable for assessment feedback
+
+
+# LearningMaterials Table
+class LearningMaterials(db.Model):
+    __tablename__ = "learning_materials"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    introduction = db.Column(db.Text)
+    conclusion = db.Column(db.Text)
+    resource_url = db.Column(db.Text)
+    resource_type = db.Column(db.String(50))  
+    technology = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    embedding = db.Column(db.PickleType)
+
+    @staticmethod
+    def generate_and_store_embedding(mapper, connection, target):
+        # Generate the embedding only if it isn't already set
+        if not target.embedding and target.technology:
+            embedding = generate_embedding(target.technology)
+            if isinstance(embedding, np.ndarray):
+                embedding = embedding.tolist()
+            target.embedding = embedding  # Store the embedding directly
+
+# Hook into the insert event for LearningMaterials
+event.listen(LearningMaterials, 'before_insert', LearningMaterials.generate_and_store_embedding)
+
+# UserProgress Table
+class UserProgress(db.Model):
+    __tablename__ = "user_progress"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_email = db.Column(db.String(255), nullable=False)
+    learning_material_id = db.Column(
+        db.Integer, db.ForeignKey("learning_materials.id"), nullable=False
     )
+    completed_pages = db.Column(db.Integer, default=0)
+    total_pages = db.Column(db.Integer, default=0)
+    is_completed = db.Column(db.Boolean, default=False)
+    last_updated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    learning_material = db.relationship("LearningMaterials", backref="progress")
+
+class LearningPlans(db.Model):
+    __tablename__ = "learning_plans"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_email = db.Column(db.String(255), nullable=False)
+    plan_details = db.Column(db.Text, nullable=False)  # JSON for storing plan details
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+# Define a Log model
+class Log(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.String(255), nullable=False)
+    user_email = db.Column(db.String(255), nullable=False)
+    log_message = db.Column(db.String(512), nullable=False)
+    log_level = db.Column(db.String(50), nullable=False)
+    timestamp = db.Column(db.DateTime, nullable=False)
 
 # Initialize the databaseg
 with app.app_context():
@@ -152,28 +215,82 @@ with app.app_context():
 AZURE_PUBLIC_KEY_URL = "https://login.microsoftonline.com/7c0c36f5-af83-4c24-8844-9962e0163719/discovery/v2.0/keys"
 def allowed_file(filename):
     """Check if the file has an allowed extension."""
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
     
-@socketio.on('test_event')
-def handle_test_event():
-    emit('metrics', {
-        "serverUptime": "Test Server",
-        "activeUsers": 50,
-        "apiResponseTime": "123ms"
-    })
+# Simulate active users count
+active_users = set()
+
+# Socket.IO event
+@socketio.on('connect')
+def handle_connect():
+    user_id = request.args.get('user_id')   
+    user_email = request.args.get('user_email')   
+    if user_id:
+        active_users.add(user_id)
+        emit('active_users', len(active_users), broadcast=True)
+        print(f"User connected: {user_id}. Active users: {len(active_users)}")
+        
+        # Create log message with IST timestamp
+        ist = pytz.timezone('Asia/Kolkata')
+        timestamp_utc = datetime.utcnow()
+        timestamp_ist = timestamp_utc.astimezone(ist)
+        
+        log_message = f"User {user_email} logged in."
+        log_level = 'INFO'
+        
+        # Save log to the database
+        new_log = Log(
+            user_id=user_id,
+            user_email=user_email,
+            log_message=log_message,
+            log_level=log_level,
+            timestamp=timestamp_ist
+        )
+        db.session.add(new_log)
+        db.session.commit()
+        
+        # Emit the log event to all clients
+        emit('logs', {
+            "logMessage": log_message,
+            "level": log_level,
+            "timestamp": timestamp_ist.isoformat()
+        }, broadcast=True)
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    user_id = request.args.get('user_id')   
+    if user_id and user_id in active_users:
+        active_users.remove(user_id)
+        emit('active_users', len(active_users), broadcast=True)
+        print(f"User disconnected: {user_id}. Active users: {len(active_users)}")
+
+def gather_metrics():
+    """Emit real-time metrics to clients periodically."""
+    while True:
+        metrics = {
+            "serverUptime": f"{time.time() - psutil.boot_time():.2f}s",
+            "activeUsers": len(active_users),  
+            "apiResponseTime": f"{psutil.cpu_percent()}ms"
+        }
+        socketio.emit('metrics', metrics)
+        time.sleep(5)   
+
+# Start metrics thread
+threading.Thread(target=gather_metrics, daemon=True).start()
 
 @socketio.on('log_event')
 def handle_log_event(data):
+    print(f"Received log event: {data}")
     log_message = data.get('message', 'No message provided')
     log_level = data.get('level', 'INFO').upper()
 
-    # Emit the log data to the frontend
-    socketio.emit('logs', {
+    # Emit the log data to all connected clients
+    emit('logs', {
         "logMessage": log_message,
         "level": log_level,
-    })
+    }, broadcast=True)
 
-    # Log the message to the server console for debugging
     log_methods = {
         'DEBUG': logger.debug,
         'INFO': logger.info,
@@ -201,7 +318,7 @@ def verify_token(token):
             token,
             public_key,
             algorithms=["RS256"],
-            audience="e3d709a8-6042-4a6a-b058-c4293a989b54",  # Replace with your Azure App's client ID
+            audience="e3d709a8-6042-4a6a-b058-c4293a989b54",   
             issuer="https://login.microsoftonline.com/7c0c36f5-af83-4c24-8844-9962e0163719/v2.0"
         )
         return decoded_token, None  # Return decoded token and no error
@@ -231,6 +348,15 @@ def validate_user():
     if not user:
         return jsonify({'error': 'User not found'}), 404
     logger.info({'role': user.role})
+
+    # Send a log event to connected clients
+    log_message = f"User {email} validated successfully with role {user.role}."
+    logger.info(log_message)
+    socketio.emit('logs', {
+        "logMessage": log_message,
+        "level": "INFO"
+    }, to=None)
+
     return jsonify({'role': user.role}), 200
 
 @app.route('/add_user', methods=['POST'])
@@ -735,6 +861,39 @@ def send_email():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# Load the pre-trained model
+model = SentenceTransformer('all-MiniLM-L6-v2')
+
+# Generate embedding for a technology name
+def generate_embedding(text):
+    embedding = model.encode(text, convert_to_numpy=True)
+    return embedding.tolist()
+ 
+def store_embeddings():
+    # Fetch all learning materials
+    materials = LearningMaterials.query.all()
+    for material in materials:
+        # Check if embedding exists or not (if it's None or empty)
+        if not material.embedding:  # If there's no embedding yet
+            embedding = generate_embedding(material.technology)
+            if embedding is not None:
+                material.embedding = json.dumps(embedding.tolist())  
+                db.session.add(material)
+
+    # Fetch all question banks
+    question_banks = QuestionBank.query.all()
+    for qb in question_banks:
+        # Check if embedding exists or not (if it's None or empty)
+        if not qb.embedding:  # If there's no embedding yet
+            embedding = generate_embedding(qb.technologies)
+            if embedding is not None:
+                qb.embedding = json.dumps(embedding.tolist())   
+                db.session.add(qb)
+
+    # Commit the changes to the database
+    db.session.commit()
+
+
 #model setup
 try:
     logger.debug("Initializing the model from Hugging Face.")
@@ -751,7 +910,7 @@ try:
     # )
     client = OpenAI(
         base_url="https://integrate.api.nvidia.com/v1",
-        api_key="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"
+        api_key=app.config['NVIDIA_TOKEN']
     )
     logger.info("Model and tokenizer loaded successfully.")
 except Exception as e:
@@ -913,8 +1072,8 @@ def download_file(filename):
 
     # Validate the transaction in the Question table
     question = Question.query.filter_by(transaction_id=transaction_id).first()
-    if not question or question.created_by != username:
-        return jsonify({'error': 'Unauthorized access to this file'}), 403
+    # if not question or question.created_by != username:
+    #     return jsonify({'error': 'Unauthorized access to this file'}), 403
 
     # Construct the full file path
     directory = os.path.join("generated_files", transaction_id)
@@ -945,8 +1104,16 @@ def generate_quests():
     if not data or not all(field in data for field in required_fields):
         return jsonify({'error': 'Invalid request, required fields missing'}), 400
 
+    # Generate transaction ID
     transaction_id = str(uuid.uuid4())
-    process_question_generation(data, transaction_id, data['username'])
+
+    try:
+        # Process question generation
+        process_question_generation(data, transaction_id, data['username'])
+    except Exception as e:
+        # Log the error with transaction ID
+        app.logger.error(f"Error in process_question_generation: {e}, Transaction ID: {transaction_id}")
+        return jsonify({'error': 'An error occurred while processing the request', 'transaction_id': transaction_id}), 500
 
     return jsonify({'message': transaction_id}), 202
 
@@ -1171,7 +1338,7 @@ def get_question_banks():
         ),
         isouter=True
     ).filter(
-        QuestionBank.status == 'Approved'  # Utilize the status column
+        QuestionBank.status == 'Approved'   
     ).group_by(
         QuestionBank.transaction_id,
         QuestionBank.topics,
@@ -1422,32 +1589,73 @@ def get_completed_assessments_for_employee():
 @app.route('/api/submit-feedback', methods=['POST'])
 def submit_feedback():
     """
-    Submit feedback for a completed assessment using transaction_id.
+    Submit feedback for a completed assessment or learning material.
     """
     data = request.get_json()
 
-    user = data.get('user')
+    user = data.get('user') 
     feedback_text = data.get('feedback')
     rating = data.get('rating')
-    transaction_id = data.get('transaction_id')
+    transaction_id = data.get('transaction_id')   
+    material_id = data.get('material_id')   
 
-    if not user or not feedback_text or not rating or not transaction_id:
-        return jsonify({"error": "User, feedback, rating, and transaction_id are required."}), 400
+    if not user or not feedback_text or not rating:
+        return jsonify({"error": "User, user_email, feedback, and rating are required."}), 400
 
-    # Validate that the transaction_id exists in AssessmentResults
-    assessment = AssessmentResults.query.filter_by(transaction_id=transaction_id).first()
-    if not assessment:
-        return jsonify({"error": "Invalid transaction_id. Assessment not found."}), 404
+    if not transaction_id and not material_id:
+        return jsonify({"error": "Either transaction_id or material_id is required."}), 400
+
+    if transaction_id and material_id:
+        return jsonify({"error": "Provide either transaction_id or material_id, not both."}), 400
 
     try:
-        new_feedback = Feedback(
-            user=user,
-            feedback=feedback_text,
-            rating=rating,
-            transaction_id=transaction_id
-        )
+        # Validate if the feedback is for an assessment
+        if transaction_id:
+            assessment = AssessmentResults.query.filter_by(transaction_id=transaction_id).first()
+            if not assessment:
+                return jsonify({"error": "Invalid transaction_id. Assessment not found."}), 404
+
+            # Add feedback for assessment
+            new_feedback = Feedback(
+                user=user,
+                feedback=feedback_text,
+                rating=rating,
+                transaction_id=transaction_id
+            )
+
+        # Validate if the feedback is for a learning material
+        elif material_id:
+            material = LearningMaterials.query.filter_by(id=material_id).first()
+            if not material:
+                return jsonify({"error": "Invalid material_id. Learning material not found."}), 404
+
+            # Add feedback for learning material
+            new_feedback = Feedback(
+                user=user,
+                feedback=feedback_text,
+                rating=rating,
+                material_id=material_id
+            )
+
+        # Commit the feedback to the database
         db.session.add(new_feedback)
         db.session.commit()
+
+        # Send acknowledgment email
+        subject = "Thank You for Your Feedback!"
+        feedback_type = "Assessment" if transaction_id else "Learning Material"
+        identifier = transaction_id if transaction_id else material_id
+        message_body = (
+            f"Dear {user},\n\n"
+            f"Thank you for your feedback on the {feedback_type} (ID: {identifier}).\n"
+            f"We value your input and will use it to improve our resources and processes.\n\n"
+            f"Here is a copy of your feedback:\n"
+            f"Rating: {rating}/5\n"
+            f"Feedback: {feedback_text}\n\n"
+            f"Best Regards,\n"
+            f"The Learning Team"
+        )
+        send_notification_on_feedback_submission(user, subject, message_body)
 
         return jsonify({"message": "Feedback submitted successfully!"}), 201
 
@@ -1495,6 +1703,432 @@ def get_transactions():
         for bank in question_banks
     ]
     return jsonify(response), 200
+
+@app.route('/api/learning-materials', methods=['GET'])
+def get_learning_materials_with_progress():
+    user_email = request.args.get('user_email')
+    if not user_email:
+        return jsonify({"error": "user_email is required"}), 400
+
+    materials = db.session.query(
+        LearningMaterials.id,
+        LearningMaterials.name,
+        LearningMaterials.description,
+        LearningMaterials.introduction,
+        LearningMaterials.conclusion,
+        LearningMaterials.resource_url,
+        LearningMaterials.resource_type,
+        UserProgress.completed_pages,
+        UserProgress.total_pages,
+        UserProgress.is_completed
+    ).outerjoin(
+        UserProgress,
+        and_(
+            UserProgress.learning_material_id == LearningMaterials.id,
+            UserProgress.user_email == user_email
+        )
+    ).all()
+
+    result = [
+        {
+            "id": material.id,
+            "name": material.name,
+            "description": material.description,
+            "introduction": material.introduction,
+            "conclusion": material.conclusion,
+            "resource_url": material.resource_url,
+            "resource_type": material.resource_type,
+            "completed_pages": material.completed_pages or 0,
+            "total_pages": material.total_pages or 0,
+            "is_completed": material.is_completed or False
+        }
+        for material in materials
+    ]
+    return jsonify(result), 200
+
+@app.route('/api/track-progress', methods=['POST'])
+def update_progress():
+    data = request.json
+    user_email = data.get("user_email")
+    learning_material_id = data.get("learning_material_id")
+    completed_pages = data.get("completed_pages")
+
+    if not all([user_email, learning_material_id]):
+        return jsonify({"error": "Missing required fields"}), 400
+
+    progress = UserProgress.query.filter_by(
+        user_email=user_email,
+        learning_material_id=learning_material_id
+    ).first()
+
+    if not progress:
+        progress = UserProgress(
+            user_email=user_email,
+            learning_material_id=learning_material_id,
+            completed_pages=completed_pages,
+            total_pages=data.get("total_pages"),
+            is_completed=completed_pages >= data.get("total_pages")
+        )
+        db.session.add(progress)
+    else:
+        progress.completed_pages = completed_pages
+        progress.is_completed = completed_pages >= progress.total_pages
+
+    db.session.commit()
+    return jsonify({"message": "Progress updated successfully"}), 200
+
+@app.route('/api/request-learning-plan', methods=['POST'])
+def request_learning_plan():
+    try:
+        # Step 1: Input Collection
+        data = request.json
+        user_email = data.get("user_email")
+        technology = data.get("technology")
+        areas_of_improvement = data.get("areasOfImprovement")
+        learning_goals = data.get("learningGoals")
+
+        # Step 2: Extract User Performance Data
+        user_performance = extract_user_performance(user_email)
+
+        # Step 3: Ensure Valid Data for ML Model
+        if not user_performance:
+            user_performance = {
+                "total_materials": 0,
+                "completed_materials": 0,
+                "completion_rate": 0.0,
+                "avg_score": 0.0,
+            }
+
+        # Prepare data for model
+        features = np.array([
+            user_performance["total_materials"],
+            user_performance["completed_materials"],
+            user_performance["completion_rate"],
+            user_performance["avg_score"],
+        ]).reshape(1, -1)
+
+        logger.info(f"features: {features}")
+        # Step 4: Fetch Similar Plans
+        similar_plans = get_similar_learning_plans(user_email, technology)
+        logger.info(f"similar plans: {similar_plans}")
+        # Step 5: Generate Recommendations
+        recommendations = generate_recommendations(user_performance, similar_plans, technology)
+
+        logger.info(f"recommendations: {recommendations}")
+
+        # Step 6: Save the Learning Plan
+        learning_plan = {
+            "technology": technology,
+            "areas_of_improvement": areas_of_improvement,
+            "learning_goals": learning_goals,
+            "recommendations": recommendations,
+            "timeline": generate_timeline(recommendations),
+        }
+        logger.info(f"learning plan info: {learning_plan}")
+        save_learning_plan(user_email, learning_plan)
+        
+        # Step 7: Send Notification
+        send_notification(user_email, "Your personalized learning plan is ready!", learning_plan)
+
+        return jsonify({"success": True, "learning_plan": learning_plan})
+
+    except Exception as e:
+        print(f"Error generating learning plan: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# Helper Functions
+
+def extract_user_performance(user_email):
+    # Extract data from UserProgress
+    progress = UserProgress.query.filter_by(user_email=user_email).all()
+    total_materials = len(progress)
+    
+    # If no progress data, set defaults
+    if total_materials == 0:
+        completed_materials = 0
+        completion_rate = 0.0
+    else:
+        completed_materials = sum(1 for p in progress if p.is_completed)
+        completion_rate = sum(
+            (p.completed_pages / p.total_pages) for p in progress if p.total_pages > 0
+        ) / total_materials
+
+    # Extract data from AssessmentResults
+    assessments = AssessmentResults.query.filter_by(employee_email=user_email).all()
+    
+    # If no assessments, set default avg_score
+    avg_score = sum(a.score for a in assessments) / len(assessments) if assessments else 0.0
+
+    # Log results for debugging
+    logger.info({
+        "total_materials": total_materials,
+        "completed_materials": completed_materials,
+        "completion_rate": completion_rate,
+        "avg_score": avg_score,
+    })
+    
+    # Return processed user performance
+    return {
+        "total_materials": total_materials,
+        "completed_materials": completed_materials,
+        "completion_rate": completion_rate,
+        "avg_score": avg_score,
+    }
+
+
+def get_similar_learning_plans(user_email, technology):
+    try:
+        # Fetch similar plans from the database
+        similar_plans = LearningPlans.query.filter(
+            LearningPlans.user_email != user_email,
+            LearningPlans.plan_details.contains(technology)
+        ).all()
+
+        # Ensure all plans are valid JSON
+        valid_plans = []
+        for plan in similar_plans:
+            try:
+                plan_details = json.loads(plan.plan_details)
+                valid_plans.append(plan_details)
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON in plan details for plan ID {plan.id}: {e}")
+                continue
+        
+        return valid_plans
+    except Exception as e:
+        logger.error(f"Error fetching similar learning plans: {e}")
+        raise
+
+def find_similar_technologies(input_technology, threshold=0.75):
+    # Generate the input embedding
+    input_embedding = generate_embedding(input_technology)
+
+    # Ensure input_embedding is a list
+    if isinstance(input_embedding, np.ndarray):
+        input_embedding = input_embedding.tolist()
+
+    # Fetch all stored embeddings
+    materials = LearningMaterials.query.with_entities(
+        LearningMaterials.id, LearningMaterials.name, LearningMaterials.embedding
+    ).all()
+
+    question_banks = QuestionBank.query.with_entities(
+        QuestionBank.transaction_id, QuestionBank.technologies, QuestionBank.embedding
+    ).all()
+
+    def process_embedding(embedding):
+        try:
+            # Convert embedding from JSON (or pickle) to list
+            if isinstance(embedding, str):
+                embedding = json.loads(embedding)
+            elif isinstance(embedding, np.ndarray):
+                embedding = embedding.tolist()
+            return np.array(embedding)   
+        except Exception as e:
+            app.logger.error(f"Error processing embedding: {e}")
+            return None
+
+    # Compute similarity for materials
+    material_matches = [
+        {
+            "id": material.id,
+            "name": material.name,
+            "similarity": cosine_similarity(
+                [input_embedding], [process_embedding(material.embedding)]
+            )[0][0],
+        }
+        for material in materials
+        if process_embedding(material.embedding) is not None
+    ]
+
+    # Compute similarity for question banks
+    qb_matches = [
+        {
+            "transaction_id": qb.transaction_id,
+            "technologies": qb.technologies,
+            "similarity": cosine_similarity(
+                [input_embedding], [process_embedding(qb.embedding)]
+            )[0][0],
+        }
+        for qb in question_banks
+        if process_embedding(qb.embedding) is not None
+    ]
+
+    # Filter by threshold
+    similar_materials = [m for m in material_matches if m["similarity"] >= threshold]
+    similar_question_banks = [qb for qb in qb_matches if qb["similarity"] >= threshold]
+
+    return similar_materials, similar_question_banks
+
+
+def generate_recommendations(user_performance, similar_plans, technology):
+    # Fetch similar technologies
+    similar_materials, similar_question_banks = find_similar_technologies(technology)
+
+    # Recommendations from Question Banks
+    qb_recommendations = [
+        {
+            "name": qb["technologies"],
+            "description": f"Question bank related to {qb['technologies']}",
+            "resource_url": f"http://localhost:3000/download/{qb['transaction_id']}.xlsx",
+        }
+        for qb in similar_question_banks
+    ]
+
+    # Recommendations from Learning Materials
+    lm_recommendations = [
+        {
+            "name": lm["name"],
+            "description": "Relevant learning material.",
+            "resource_url": f"http://localhost:3000/employee",
+        }
+        for lm in similar_materials
+    ]
+
+    # Combine recommendations
+    recommendations = qb_recommendations + lm_recommendations
+
+    # Ensure all values are serializable
+    def ensure_serializable(obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, dict):
+            return {k: ensure_serializable(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [ensure_serializable(v) for v in obj]
+        return obj
+
+    recommendations = [ensure_serializable(rec) for rec in recommendations]
+
+    # If no recommendations, return default suggestions
+    if not recommendations:
+        recommendations = [
+            {
+                "name": "Practice Questions and take self assessments",
+                "description": "Consistently practice questions related to your areas of improvement.",
+                "resource_url": "http://localhost:3000/employee",
+            },
+            {
+                "name": "Explore Online Tutorials",
+                "description": "Find relevant tutorials and videos on Hexaware Udemy or Sonic platforms for your chosen technology.",
+                "resource_url": "https://hexaware.udemy.com",
+            }
+        ]
+
+    logger.info(f"Final Recommendations: {recommendations}")   
+    return recommendations
+
+def generate_timeline(recommendations):
+    return [
+        {"name": rec["name"], "completion_date": f"2024-01-{index+10}"}
+        for index, rec in enumerate(recommendations)
+    ]
+
+
+def save_learning_plan(user_email, learning_plan):
+    try:
+        # Ensure the learning plan is JSON serializable
+        plan_json = json.dumps(
+            learning_plan 
+        )
+        new_plan = LearningPlans(
+            user_email=user_email,
+            plan_details=plan_json
+        )
+        db.session.add(new_plan)
+        db.session.commit()
+    except Exception as e:
+        logger.error(f"Error saving learning plan: {e}")
+        raise
+
+def send_notification(user_email, subject, learning_plan):
+    try:
+        # Ensure learning_plan is serializable
+        serialized_plan = json.dumps(
+            learning_plan
+        )
+
+        # Compose email body
+        body = f"""
+        Dear User,
+
+        Your personalized learning plan is ready:
+
+        {serialized_plan}
+
+        Best Regards,
+        Learning Team
+        """
+
+        # Send the email
+        with curr_app.app_context():
+            msg = Message(subject, sender=app.config['MAIL_USERNAME'], recipients=[user_email])
+            msg.body = body
+            mail.send(msg)
+
+        return jsonify({"message": f"Notification sent to {user_email}"}), 200
+
+    except json.JSONDecodeError as json_err:
+        logger.error(f"Failed to serialize learning plan: {json_err}")
+        return jsonify({"error": "Failed to serialize learning plan"}), 500
+
+    except Exception as e:
+        logger.error(f"Error sending notification: {e}")
+        return jsonify({"error": str(e)}), 500
+
+def predict_effectiveness(user_performance, recommendation):
+    """
+    Predict the effectiveness of a recommendation for a user based on their performance data.
+
+    Parameters:
+    - user_performance (dict): Contains user's performance metrics like completion_rate and avg_score.
+    - recommendation (dict): Contains the details of the recommendation.
+
+    Returns:
+    - float: A score between 0 and 1 indicating the predicted effectiveness.
+    """
+    # Extract user performance metrics
+    completion_rate = user_performance.get("completion_rate", 0)
+    avg_score = user_performance.get("avg_score", 0)
+    completed_materials = user_performance.get("completed_materials", 0)
+    total_materials = user_performance.get("total_materials", 1)  # Avoid division by zero
+
+    # Calculate normalized metrics
+    material_completion_ratio = completed_materials / total_materials if total_materials > 0 else 0
+    normalized_avg_score = avg_score / 100  # Assuming scores are out of 100
+
+    # Recommendation-related factors (simple heuristic example)
+    is_related_to_technology = "technology" in recommendation["description"].lower()
+    recommendation_importance = 1.0 if is_related_to_technology else 0.5
+
+    # Weighted scoring system
+    effectiveness_score = (
+        0.4 * completion_rate +
+        0.3 * normalized_avg_score +
+        0.2 * material_completion_ratio +
+        0.1 * recommendation_importance
+    )
+
+    # Ensure the score is between 0 and 1
+    effectiveness_score = min(max(effectiveness_score, 0), 1)
+
+    return effectiveness_score
+
+def send_notification_on_feedback_submission(user_email, subject, message_body): 
+    try:
+        with app.app_context():  # Ensure the app context is available
+            msg = Message(
+                subject,
+                sender=app.config['MAIL_USERNAME'],
+                recipients=[user_email]
+            )
+            msg.body = message_body
+            mail.send(msg)
+
+        return jsonify({"message": f"Notification sent to {user_email}"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == '__main__':
