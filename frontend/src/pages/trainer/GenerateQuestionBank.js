@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react';
+import Select from 'react-select';  
+import makeAnimated from 'react-select/animated';
 import axios from 'axios';
 import { useAuth } from "../../auth/useAuth";
 
@@ -58,31 +60,37 @@ function GenerateQuestionBank({ topics = [], subtopics = [], setActiveTab, prede
     return true;
   };
 
-  const handleTopicChange = (topic) => {
-    setSelectedTopics((prevSelected) => {
-      const updated = { ...prevSelected };
-      if (updated[topic]) {
-        delete updated[topic]; // Deselect topic and its subtopics
-      } else {
-        updated[topic] = []; // Select topic with empty subtopics
-      }
-      return updated;
+  // Convert topics and subtopics to dropdown options
+  const topicOptions = useMemo(() => {
+    return distinctTopics.map((topic) => ({
+      value: topic,
+      label: topic,
+    }));
+  }, [distinctTopics]);
+
+  const subtopicOptions = useMemo(() => {
+    return Object.entries(topicSubtopicMap).reduce((options, [topic, subtopics]) => {
+      options[topic] = subtopics.map((subtopic) => ({
+        value: subtopic,
+        label: subtopic,
+      }));
+      return options;
+    }, {});
+  }, [topicSubtopicMap]);
+
+  const handleTopicChange = (selected) => {
+    const selectedMap = {};
+    selected.forEach((option) => {
+      selectedMap[option.value] = selectedTopics[option.value] || [];
     });
+    setSelectedTopics(selectedMap);
   };
 
-  const handleSubtopicChange = (topic, subtopic) => {
-    setSelectedTopics((prevSelected) => {
-      const updated = { ...prevSelected };
-      if (!updated[topic]) {
-        updated[topic] = [];
-      }
-      if (updated[topic].includes(subtopic)) {
-        updated[topic] = updated[topic].filter((s) => s !== subtopic);
-      } else {
-        updated[topic] = [...updated[topic], subtopic];
-      }
-      return updated;
-    });
+  const handleSubtopicChange = (topic, selected) => {
+    setSelectedTopics((prev) => ({
+      ...prev,
+      [topic]: selected.map((option) => option.value),
+    }));
   };
 
   const handleGenerate = async (e) => {
@@ -122,19 +130,19 @@ function GenerateQuestionBank({ topics = [], subtopics = [], setActiveTab, prede
     }
   };
 
-  const handleSelectAllSubtopics = (topic) => {
-    setSelectedTopics((prevSelected) => ({
-      ...prevSelected,
-      [topic]: topicSubtopicMap[topic],
-    }));
-  };
+  // const handleSelectAllSubtopics = (topic) => {
+  //   setSelectedTopics((prevSelected) => ({
+  //     ...prevSelected,
+  //     [topic]: topicSubtopicMap[topic],
+  //   }));
+  // };
 
-  const handleClearAllSubtopics = (topic) => {
-    setSelectedTopics((prevSelected) => ({
-      ...prevSelected,
-      [topic]: [],
-    }));
-  };
+  // const handleClearAllSubtopics = (topic) => {
+  //   setSelectedTopics((prevSelected) => ({
+  //     ...prevSelected,
+  //     [topic]: [],
+  //   }));
+  // };
 
   const handleReviewEditQuestionBank = () => {
     setActiveTab('reviewEditQuestionBank', transactionId);
@@ -202,73 +210,70 @@ function GenerateQuestionBank({ topics = [], subtopics = [], setActiveTab, prede
           {/* Topics Selection */}
           <div className="mb-4">
             <label className="block text-gray-700">Select Topics</label>
-            <div className="space-y-2">
-              {distinctTopics.length > 0 ? (
-                distinctTopics.map((topic, idx) => (
-                  <div key={idx} className="flex items-center">
-                    <input
-                      type="checkbox"
-                      id={`topic-${topic}`}
-                      checked={!!selectedTopics[topic]}
-                      onChange={() => handleTopicChange(topic)}
-                      className="mr-2"
-                    />
-                    <label htmlFor={`topic-${topic}`} className="text-gray-600">
-                      {topic}
-                    </label>
-                  </div>
-                ))
-              ) : (
-                <p className="text-gray-500">No topics available. Upload curriculum.</p>
-              )}
+            <div className="flex items-center">
+              <Select
+                isMulti
+                options={topicOptions}
+                components={makeAnimated()}
+                onChange={handleTopicChange}
+                value={Object.keys(selectedTopics).map((topic) => ({
+                  value: topic,
+                  label: topic,
+                }))}
+                className="mt-2 flex-grow"
+                placeholder="Choose topics"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const allTopics = distinctTopics.reduce((map, topic) => {
+                    map[topic] = subtopicOptions[topic].map((sub) => sub.value);
+                    return map;
+                  }, {});
+                  setSelectedTopics(allTopics);
+                }}
+                className="ml-2 bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600"
+              >
+                Select All
+              </button>
             </div>
           </div>
 
-          {/* Subtopics for Selected Topics */}
-          {Object.keys(selectedTopics).map((topic, idx) => (
-            <div key={idx} className="mb-4">
-              <label className="block text-gray-700">Select Subtopics for {topic}</label>
-              <div className="space-y-2">
-                {topicSubtopicMap[topic] && topicSubtopicMap[topic].length > 0 ? (
-                  topicSubtopicMap[topic].map((subtopic, subIdx) => (
-                    <div key={subIdx} className="flex items-center">
-                      <input
-                        type="checkbox"
-                        id={`subtopic-${topic}-${subtopic}`}
-                        value={subtopic}
-                        checked={selectedTopics[topic]?.includes(subtopic)}
-                        onChange={() => handleSubtopicChange(topic, subtopic)}
-                        className="mr-2"
-                      />
-                      <label htmlFor={`subtopic-${topic}-${subtopic}`} className="text-gray-600">
-                        {subtopic}
-                      </label>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-gray-500">No subtopics available.</p>
-                )}
-              </div>
 
-              {/* Select All / Clear All Buttons for Subtopics */}
-              <div className="flex space-x-4 mt-2">
-                <button
-                  type="button"
-                  onClick={() => handleSelectAllSubtopics(topic)}
-                  className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600"
-                >
-                  Select All
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleClearAllSubtopics(topic)}
-                  className="bg-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-400"
-                >
-                  Clear All
-                </button>
-              </div>
+          {/* Subtopics Selection */}
+          {Object.keys(selectedTopics).map((topic) => (
+          <div key={topic} className="mb-4">
+            <label className="block text-gray-700">Select Subtopics for {topic}</label>
+            <div className="flex items-center">
+              <Select
+                isMulti
+                options={subtopicOptions[topic]}
+                components={makeAnimated()}
+                onChange={(selected) => handleSubtopicChange(topic, selected)}
+                value={selectedTopics[topic].map((sub) => ({
+                  value: sub,
+                  label: sub,
+                }))}
+                className="mt-2 flex-grow"
+                placeholder={`Choose subtopics for ${topic}`}
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedTopics((prev) => ({
+                    ...prev,
+                    [topic]: subtopicOptions[topic].map((sub) => sub.value),
+                  }))
+                }
+                className="ml-2 bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600"
+              >
+                Select All
+              </button>
             </div>
-          ))}
+          </div>
+        ))}
+
+
 
           {/* Number of Questions */}
           <div className="mb-4">

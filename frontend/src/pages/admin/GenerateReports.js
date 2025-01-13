@@ -31,14 +31,33 @@ function GenerateReports() {
     setLoading(false);
   };
 
-
   const exportToPDF = () => {
     const doc = new jsPDF();
     doc.text('Report: ' + reportType, 10, 10);
 
-    reportData.forEach((item, index) => {
-      doc.text(`${index + 1}. ${item.activity}`, 10, 20 + index * 10);
-    });
+    let yPosition = 20; // Initial vertical position
+
+  reportData.forEach((item, index) => {
+    const text = `${index + 1}. ${item.activity} at ${item.timestamp}`;
+    
+    // Wrap the text to fit within the page width (e.g., 180 units)
+    const pageWidth = 180;
+    const wrappedText = doc.splitTextToSize(text, pageWidth);
+    
+    // Add the wrapped text to the document at the current position
+    doc.text(wrappedText, 10, yPosition);
+    
+    // Update the vertical position for the next item
+    const lineHeight = 10; // Adjust line height (10 units per line is typical)
+    yPosition += wrappedText.length * lineHeight;
+    
+    // Check if the yPosition exceeds the page height
+    if (yPosition > 280) { // Adjust this value for your page size (A4 height ~297mm)
+      doc.addPage(); // Add a new page
+      yPosition = 20; // Reset the position for the new page
+    }
+  });
+
 
     doc.save(`${reportType || 'Report'}.pdf`);
   };
@@ -111,7 +130,6 @@ function GenerateReports() {
           </div>
         </>
       )}
-
     </div>
   );
 }

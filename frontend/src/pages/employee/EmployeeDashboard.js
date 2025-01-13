@@ -1,12 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import SelfAssessment from './SelfAssessment';
 import FeedbackSubmission from './FeedbackSubmission';
 import LearningAndDevelopment from './LearningAndDevelopment';
 import RequestLearningPlan from './RequestLearningPlan';
 
 function EmployeeDashboard() {
-  const [activeTab, setActiveTab] = useState('selfAssessment'); // Initial active tab
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // State to toggle sidebar
+  const [activeTab, setActiveTab] = useState('');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); 
+
+  // Effect to set the active tab based on the URL hash
+  useEffect(() => {
+    const hash = window.location.hash.replace('#', ''); // Get the hash without the '#' symbol
+    if (hash) {
+      setActiveTab(hash);
+    } else {
+      setActiveTab('selfAssessment'); // Default tab if no hash is present
+    }
+  }, []);
 
   // Function to render content based on the active tab
   const renderContent = () => {
@@ -22,6 +32,12 @@ function EmployeeDashboard() {
       default:
         return <div>Select a tab to view content</div>;
     }
+  };
+
+  // Function to update the URL hash and set activeTab
+  const navigateToTab = (tab) => {
+    window.location.hash = `#${tab}`; // Update the hash in the URL
+    setActiveTab(tab); // Set the active tab
   };
 
   return (
@@ -58,7 +74,7 @@ function EmployeeDashboard() {
               activeTab === 'selfAssessment' ? 'bg-[#6458F5]' : ''
             }`}
             onClick={() => {
-              setActiveTab('selfAssessment');
+              navigateToTab('selfAssessment');
               setIsSidebarOpen(false); // Close sidebar on navigation
             }}
           >
@@ -69,7 +85,7 @@ function EmployeeDashboard() {
               activeTab === 'feedbackSubmission' ? 'bg-[#6458F5]' : ''
             }`}
             onClick={() => {
-              setActiveTab('feedbackSubmission');
+              navigateToTab('feedbackSubmission');
               setIsSidebarOpen(false);
             }}
           >
@@ -80,7 +96,7 @@ function EmployeeDashboard() {
               activeTab === 'learningAndDevelopment' ? 'bg-[#6458F5]' : ''
             }`}
             onClick={() => {
-              setActiveTab('learningAndDevelopment');
+              navigateToTab('learningAndDevelopment');
               setIsSidebarOpen(false);
             }}
           >
@@ -91,7 +107,7 @@ function EmployeeDashboard() {
               activeTab === 'requestLearningPlan' ? 'bg-[#6458F5]' : ''
             }`}
             onClick={() => {
-              setActiveTab('requestLearningPlan');
+              navigateToTab('requestLearningPlan');
               setIsSidebarOpen(false);
             }}
           >

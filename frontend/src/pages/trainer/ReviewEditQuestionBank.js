@@ -93,12 +93,21 @@ const ReviewEditQuestionBank = ({ transactionId }) => {
     }
   };
 
-  const handleEditApproved = (id, updatedFields) => {
-    setApprovedQuestions((prevQuestions) =>
-      prevQuestions.map((q) =>
-        q.id === id ? { ...q, ...updatedFields } : q
-      )
-    );
+  const handleEditApproved = async (id, updatedFields) => {
+    const updatedQuestions = approvedQuestions.map((q) =>
+      q.id === id ? { ...q, ...updatedFields } : q
+    ); 
+    setApprovedQuestions(updatedQuestions);
+    const updatedPayload = {
+      id,
+      ...updatedFields,
+    };
+
+    try {
+      await axios.post("http://127.0.0.1:5000/update-questions", updatedPayload);
+    } catch (error) {
+      console.error("Error updating question:", error);
+    } 
   };
 
   const handleTransactionSubmit = () => {

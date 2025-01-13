@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import UploadCurriculum from './UploadCurriculum';
 import GenerateQuestionBank from './GenerateQuestionBank';
 import ReviewEditQuestionBank from './ReviewEditQuestionBank';
 import DownloadDistribute from './DownloadDistribute';
-import FeedbackCollection from './FeedbackCollection';
+import FeedbackCollection from './FeedbackCollection'; 
 
 function TrainerDashboard() {
   const [activeTab, setActiveTab] = useState('uploadCurriculum'); // Initial active tab
@@ -12,8 +12,23 @@ function TrainerDashboard() {
   const [subtopics, setSubtopics] = useState([]);
   const [transactionId, setTransactionId] = useState(null);
 
+  useEffect(() => {
+    const hash = window.location.hash.replace('#', ''); // Get the hash without the `#`
+    if (hash) {
+      setActiveTab(hash); // Set the active tab based on the URL hash
+    } else {
+      setActiveTab('uploadCurriculum'); // Default tab
+    }
+  }, []);
+
+  const navigateToTab = (tab) => {
+    const basePath = window.location.pathname; // Get the current path (e.g., /trainer/)
+    window.history.pushState(null, '', `${basePath}#${tab}`); // Update the URL with the tab hash
+    setActiveTab(tab); // Set the active tab
+  };
+
   const handleSetActiveTabUploadCurriculum = (tab, data) => {
-    setActiveTab(tab);
+    navigateToTab(tab);
     if (data) {
       setTopics(data.topics);
       setSubtopics(data.subtopics);
@@ -21,8 +36,8 @@ function TrainerDashboard() {
   };
 
   const handleSetActiveTabReviewEditQuestionBank = (tab, data) => {
-    setActiveTab(tab);
-    if (data) setTransactionId(data); // transactionId
+    navigateToTab(tab);
+    if (data) setTransactionId(data); // Set transactionId
   };
 
   const renderContent = () => {
@@ -30,7 +45,13 @@ function TrainerDashboard() {
       case 'uploadCurriculum':
         return <UploadCurriculum setActiveTab={handleSetActiveTabUploadCurriculum} />;
       case 'generateQuestionBank':
-        return <GenerateQuestionBank topics={topics} subtopics={subtopics} setActiveTab={handleSetActiveTabReviewEditQuestionBank} />;
+        return (
+          <GenerateQuestionBank
+            topics={topics}
+            subtopics={subtopics}
+            setActiveTab={handleSetActiveTabReviewEditQuestionBank}
+          />
+        );
       case 'reviewEditQuestionBank':
         return <ReviewEditQuestionBank transactionId={transactionId} />;
       case 'downloadDistribute':
@@ -51,7 +72,7 @@ function TrainerDashboard() {
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
         >
           ☰
-        </button> 
+        </button>
       </div>
 
       {/* Sidebar */}
@@ -59,10 +80,10 @@ function TrainerDashboard() {
         className={`fixed md:relative z-20 bg-blue-500 text-white w-64 h-full md:h-auto transition-transform transform ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
         } md:translate-x-0`}
-        style={{ height: '100vh' }} // Ensures the sidebar takes full screen height
+        style={{ height: 'auto' }}
       >
         <div className="flex items-center justify-between p-4 border-b border-[#5047C9]">
-          <div className="text-2xl font-bold">Trainer Dashboard </div>
+          <div className="text-2xl font-bold">Trainer Dashboard</div>
           <button
             className="text-white md:hidden"
             onClick={() => setIsSidebarOpen(false)}
@@ -72,45 +93,55 @@ function TrainerDashboard() {
         </div>
         <nav className="mt-6">
           <button
-            className={`w-full text-left py-2 px-4 ${activeTab === 'uploadCurriculum' ? 'bg-blue-700' : ''}`}
+            className={`w-full text-left py-2 px-4 ${
+              activeTab === 'uploadCurriculum' ? 'bg-blue-700' : ''
+            }`}
             onClick={() => {
-              setActiveTab('uploadCurriculum');
+              navigateToTab('uploadCurriculum');
               setIsSidebarOpen(false); // Close sidebar on navigation
             }}
           >
             Upload Curriculum
           </button>
           <button
-            className={`w-full text-left py-2 px-4 ${activeTab === 'generateQuestionBank' ? 'bg-blue-700' : ''}`}
+            className={`w-full text-left py-2 px-4 ${
+              activeTab === 'generateQuestionBank' ? 'bg-blue-700' : ''
+            }`}
             onClick={() => {
-              setActiveTab('generateQuestionBank');
+              navigateToTab('generateQuestionBank');
               setIsSidebarOpen(false);
             }}
           >
             Generate Question Bank
           </button>
           <button
-            className={`w-full text-left py-2 px-4 ${activeTab === 'reviewEditQuestionBank' ? 'bg-blue-700' : ''}`}
+            className={`w-full text-left py-2 px-4 ${
+              activeTab === 'reviewEditQuestionBank' ? 'bg-blue-700' : ''
+            }`}
             onClick={() => {
-              setActiveTab('reviewEditQuestionBank');
+              navigateToTab('reviewEditQuestionBank');
               setIsSidebarOpen(false);
             }}
           >
             Review & Edit Question Bank
           </button>
           <button
-            className={`w-full text-left py-2 px-4 ${activeTab === 'downloadDistribute' ? 'bg-blue-700' : ''}`}
+            className={`w-full text-left py-2 px-4 ${
+              activeTab === 'downloadDistribute' ? 'bg-blue-700' : ''
+            }`}
             onClick={() => {
-              setActiveTab('downloadDistribute');
+              navigateToTab('downloadDistribute');
               setIsSidebarOpen(false);
             }}
           >
             Download & Distribute
           </button>
           <button
-            className={`w-full text-left py-2 px-4 ${activeTab === 'feedbackCollection' ? 'bg-blue-700' : ''}`}
+            className={`w-full text-left py-2 px-4 ${
+              activeTab === 'feedbackCollection' ? 'bg-blue-700' : ''
+            }`}
             onClick={() => {
-              setActiveTab('feedbackCollection');
+              navigateToTab('feedbackCollection');
               setIsSidebarOpen(false);
             }}
           >

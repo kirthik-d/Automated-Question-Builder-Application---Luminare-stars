@@ -20,16 +20,21 @@ function MonitorSystem({ logs, metrics, activeUsers }) {
         <h3 className="text-xl font-bold mb-2">Activity Logs</h3>
         <div className="border p-4 bg-gray-50">
           {logs.length > 0 ? (
-            logs.map((log, idx) => (
-              <p key={idx} className="mb-2">
-                {log}
-              </p>
-            ))
+            <ul>
+              {logs.map((log, index) => (
+                <li key={index} className="mb-4">
+                  <strong>Message:</strong> {log.logMessage} <br />
+                  <strong>Level:</strong> {log.level} <br />
+                  <strong>Timestamp:</strong> {new Date(log.timestamp).toLocaleString()}
+                </li>
+              ))}
+            </ul>
           ) : (
-            <p>No logs available</p>
+            <p className="text-gray-500">No activity logs available.</p>
           )}
         </div>
       </div>
+
     </div>
   );
 }

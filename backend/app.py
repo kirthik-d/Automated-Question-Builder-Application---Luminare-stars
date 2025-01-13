@@ -198,14 +198,17 @@ class LearningPlans(db.Model):
     plan_details = db.Column(db.Text, nullable=False)  # JSON for storing plan details
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-# Define a Log model
+# Define a Log model 
 class Log(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.String(255), nullable=False)
     user_email = db.Column(db.String(255), nullable=False)
-    log_message = db.Column(db.String(512), nullable=False)
+    role = db.Column(db.String(50))
+    log_message = db.Column(db.Text, nullable=False)
     log_level = db.Column(db.String(50), nullable=False)
     timestamp = db.Column(db.DateTime, nullable=False)
+    report_type = db.Column(db.String(50), nullable=True)   
+
 
 # Initialize the databaseg
 with app.app_context():
@@ -220,50 +223,96 @@ def allowed_file(filename):
 # Simulate active users count
 active_users = set()
 
-# Socket.IO event
+# A dictionary to track connections per user and role
+user_connections = {}
+
 @socketio.on('connect')
 def handle_connect():
-    user_id = request.args.get('user_id')   
-    user_email = request.args.get('user_email')   
-    if user_id:
-        active_users.add(user_id)
-        emit('active_users', len(active_users), broadcast=True)
-        print(f"User connected: {user_id}. Active users: {len(active_users)}")
-        
-        # Create log message with IST timestamp
-        ist = pytz.timezone('Asia/Kolkata')
-        timestamp_utc = datetime.utcnow()
-        timestamp_ist = timestamp_utc.astimezone(ist)
-        
-        log_message = f"User {user_email} logged in."
-        log_level = 'INFO'
-        
-        # Save log to the database
-        new_log = Log(
-            user_id=user_id,
-            user_email=user_email,
-            log_message=log_message,
-            log_level=log_level,
-            timestamp=timestamp_ist
-        )
-        db.session.add(new_log)
-        db.session.commit()
-        
-        # Emit the log event to all clients
-        emit('logs', {
-            "logMessage": log_message,
-            "level": log_level,
-            "timestamp": timestamp_ist.isoformat()
-        }, broadcast=True)
+    user_id = request.args.get('user_id')
+    user_email = request.args.get('user_email')
+    role = request.args.get('user_role')   
+    # Check for missing or invalid parameters
+    if not user_id or not user_email or not role or role == "null":
+        print("Invalid connection attempt with missing or invalid parameters")
+        # Reject the connection by returning False
+        return False
+    log_event(user_id, user_email, role, 'Usage Statistics', request)
 
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    user_id = request.args.get('user_id')   
-    if user_id and user_id in active_users:
-        active_users.remove(user_id)
+    print(f"Socket disconnected for SID: {request.sid}. No cleanup performed.")
+
+def log_event(user_id, user_email, role, report_type, request):
+    if user_email and role:
+        user_key = f"{role}:{user_email}"   
+
+        # Initialize the connection list for the user if not present
+        if user_key not in user_connections:
+            user_connections[user_key] = set()
+        
+        # Add the current connection to the user's set of connections
+        user_connections[user_key].add(request.sid)
+
+        # Increment active users only if this is the first connection for the user
+        if len(user_connections[user_key]) == 1:
+            active_users.add(user_key)
+            print(f"{role.capitalize()} connected: {user_email}. Active users: {len(active_users)}")
+
+            log_message = f"{role.capitalize()} {user_email} logged in"
+            log_level = 'INFO'
+            emit_log(user_id, user_email, role, report_type, log_message, log_level)
         emit('active_users', len(active_users), broadcast=True)
-        print(f"User disconnected: {user_id}. Active users: {len(active_users)}")
+
+def emit_log(user_id, user_email, role, report_type, log_message, log_level="INFO"):
+    # Get IST timestamp
+    ist = pytz.timezone('Asia/Kolkata')
+    timestamp_utc = datetime.utcnow()
+    timestamp_ist = timestamp_utc.astimezone(ist)
+
+    # Save log to the database
+    new_log = Log(
+        user_id=user_id,
+        user_email=user_email,
+        role=role,
+        log_message=log_message,
+        log_level=log_level,
+        timestamp=timestamp_ist,
+        report_type=report_type
+    )
+    db.session.add(new_log)
+    db.session.commit()
+
+    emit('logs', {
+        "logMessage": log_message,
+        "level": log_level,
+        "timestamp": timestamp_ist.isoformat()
+    }, broadcast=True)        
+
+def emit_log_from_other_roles(user_id, user_email, role, report_type, log_message, log_level="INFO"):
+    # Get IST timestamp
+    ist = pytz.timezone('Asia/Kolkata')
+    timestamp_utc = datetime.utcnow()
+    timestamp_ist = timestamp_utc.astimezone(ist)
+
+    # Save log to the database
+    new_log = Log(
+        user_id=user_id,
+        user_email=user_email,
+        role=role,
+        log_message=log_message,
+        log_level=log_level,
+        timestamp=timestamp_ist,
+        report_type=report_type
+    )
+    db.session.add(new_log)
+    db.session.commit()
+
+    socketio.emit('logs', {
+        "logMessage": log_message,
+        "level": log_level,
+        "timestamp": timestamp_ist.isoformat()
+    }, to=None)  
 
 def gather_metrics():
     """Emit real-time metrics to clients periodically."""
@@ -278,27 +327,6 @@ def gather_metrics():
 
 # Start metrics thread
 threading.Thread(target=gather_metrics, daemon=True).start()
-
-@socketio.on('log_event')
-def handle_log_event(data):
-    print(f"Received log event: {data}")
-    log_message = data.get('message', 'No message provided')
-    log_level = data.get('level', 'INFO').upper()
-
-    # Emit the log data to all connected clients
-    emit('logs', {
-        "logMessage": log_message,
-        "level": log_level,
-    }, broadcast=True)
-
-    log_methods = {
-        'DEBUG': logger.debug,
-        'INFO': logger.info,
-        'WARNING': logger.warning,
-        'ERROR': logger.error,
-        'CRITICAL': logger.critical
-    }
-    log_methods.get(log_level, logger.info)(log_message)
 
 def get_azure_public_keys():
     response = requests.get(AZURE_PUBLIC_KEY_URL)
@@ -349,15 +377,33 @@ def validate_user():
         return jsonify({'error': 'User not found'}), 404
     logger.info({'role': user.role})
 
-    # Send a log event to connected clients
-    log_message = f"User {email} validated successfully with role {user.role}."
-    logger.info(log_message)
-    socketio.emit('logs', {
-        "logMessage": log_message,
-        "level": "INFO"
-    }, to=None)
-
     return jsonify({'role': user.role}), 200
+
+@app.route('/logout', methods=['POST'])
+def logout_user():
+    user_email = request.json.get('user_email')   
+    user_role = request.json.get('user_role')     
+  
+    if not user_email or not user_role:
+        return jsonify({'error': 'Missing user details'}), 400
+    
+    user_key = f"{user_role}:{user_email}"
+
+    if user_key in user_connections:
+        # Remove the user's connections and update active users
+        user_connections[user_key].clear()  # Clear all connections for this user
+        user_connections.pop(user_key)  # Remove the user from user_connections
+        active_users.discard(user_key)  # Remove the user from active users
+
+        # Optionally log this event
+        print(f"{user_role.capitalize()} {user_email} logged out. Active users: {len(active_users)}")
+
+        # Notify all clients of the updated active users count
+        socketio.emit('active_users', len(active_users), to=None)
+        return jsonify({'message': f'{user_role.capitalize()} {user_email} logged out successfully.'}), 200
+
+    return jsonify({'message': 'User not found or already logged out.'}), 200
+
 
 @app.route('/add_user', methods=['POST'])
 def add_user():
@@ -432,71 +478,84 @@ def monitor_user():
 def index():
     return render_template('index.html')
 
-#generate reports
-def create_report_table():
-    conn = sqlite3.connect('app.db')  # Open a database connection
-    cursor = conn.cursor()
+# #generate reports
+# def create_report_table():
+#     conn = sqlite3.connect('app.db')  # Open a database connection
+#     cursor = conn.cursor()
     
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS report_data (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            report_type TEXT NOT NULL,
-            user_id INTEGER,
-            activity TEXT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
+#     cursor.execute('''
+#         CREATE TABLE IF NOT EXISTS report_data (
+#             id INTEGER PRIMARY KEY AUTOINCREMENT,
+#             report_type TEXT NOT NULL,
+#             user_id INTEGER,
+#             activity TEXT,
+#             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+#         )
+#     ''')
 
-    # Insert example data for 'Usage Statistics'
-    cursor.execute('''
-        INSERT INTO report_data (report_type, user_id, activity)
-        VALUES ('Usage Statistics', 1, 'User logged in and viewed the dashboard')
-    ''')
+#     # Insert example data for 'Usage Statistics'
+#     cursor.execute('''
+#         INSERT INTO report_data (report_type, user_id, activity)
+#         VALUES ('Usage Statistics', 1, 'User logged in and viewed the dashboard')
+#     ''')
 
-    # Insert example data for 'Question Bank Summary'
-    cursor.execute('''
-        INSERT INTO report_data (report_type, user_id, activity)
-        VALUES ('Question Bank Summary', 2, 'Trainer added new questions to the question bank')
-    ''')
+#     # Insert example data for 'Question Bank Summary'
+#     cursor.execute('''
+#         INSERT INTO report_data (report_type, user_id, activity)
+#         VALUES ('Question Bank Summary', 2, 'Trainer added new questions to the question bank')
+#     ''')
 
-    # Insert example data for 'System Health'
-    cursor.execute('''
-        INSERT INTO report_data (report_type, user_id, activity)
-        VALUES ('System Health', 3, 'Admin performed system health check')
-    ''')
+#     # Insert example data for 'System Health'
+#     cursor.execute('''
+#         INSERT INTO report_data (report_type, user_id, activity)
+#         VALUES ('System Health', 3, 'Admin performed system health check')
+#     ''')
     
-    conn.commit()
-    conn.close()
+#     conn.commit()
+#     conn.close()
 
-def insert_report_data(report_type, user_id, activity):
-    conn = sqlite3.connect('app.db')
-    cursor = conn.cursor()
+# def insert_report_data(report_type, user_id, activity):
+#     conn = sqlite3.connect('app.db')
+#     cursor = conn.cursor()
 
-    cursor.execute('''
-        INSERT INTO report_data (report_type, user_id, activity)
-        VALUES (?, ?, ?)
-    ''', (report_type, user_id, activity))
+#     cursor.execute('''
+#         INSERT INTO report_data (report_type, user_id, activity)
+#         VALUES (?, ?, ?)
+#     ''', (report_type, user_id, activity))
     
-    conn.commit()
-    conn.close()
+#     conn.commit()
+#     conn.close()
 
-def fetch_report_data(report_type):
-    conn = sqlite3.connect('app.db')
-    cursor = conn.cursor()
+# def fetch_report_data(report_type):
+#     conn = sqlite3.connect('app.db')
+#     cursor = conn.cursor()
 
-    cursor.execute('''
-        SELECT * FROM report_data WHERE report_type = ?
-    ''', (report_type,))
+#     cursor.execute('''
+#         SELECT * FROM report_data WHERE report_type = ?
+#     ''', (report_type,))
     
-    report_data = cursor.fetchall()
-    conn.close()
+#     report_data = cursor.fetchall()
+#     conn.close()
 
-    return report_data
+#     return report_data
+
+# @app.route('/reports/<report_type>', methods=['GET'])
+# def get_report(report_type):
+#     data = fetch_report_data(report_type)
+#     return jsonify(data)
 
 @app.route('/reports/<report_type>', methods=['GET'])
 def get_report(report_type):
-    data = fetch_report_data(report_type)
-    return jsonify(data)
+    # Filter logs based on report_type
+    logs = Log.query.filter_by(report_type=report_type).all()
+
+    # Prepare the data in the expected format
+    report_data = []
+    for log in logs:
+        report_data.append([log.id, log.report_type, log.user_id, log.log_message, log.timestamp])
+
+    return jsonify(report_data)
+
 
 @app.route('/get-feedback', methods=['GET'])
 def get_feedback():
@@ -1110,6 +1169,8 @@ def generate_quests():
     try:
         # Process question generation
         process_question_generation(data, transaction_id, data['username'])
+        log_message = f"Trainer {data['username']} generated question bank with transaction id {transaction_id}"
+        emit_log_from_other_roles(data['username'].split('@')[0], data['username'], 'Trainer', "Question Bank Summary", log_message, "INFO")
     except Exception as e:
         # Log the error with transaction ID
         app.logger.error(f"Error in process_question_generation: {e}, Transaction ID: {transaction_id}")
@@ -1243,7 +1304,7 @@ def process_question_generation(data, transaction_id, username):
                 'correct_answer': question['correct_answer'],
                 'status': 'Generated',
                 'difficulty': difficulty,
-                'topics': ', '.join(topics),
+                'topics': question['topics'],
                 'technologies': ', '.join(technologies),
                 'transaction_id': transaction_id,
                 'created_by': username,
@@ -1981,7 +2042,7 @@ def generate_recommendations(user_performance, similar_plans, technology):
         {
             "name": lm["name"],
             "description": "Relevant learning material.",
-            "resource_url": f"http://localhost:3000/employee",
+            "resource_url": f"http://localhost:3000/employee/#learningAndDevelopment",
         }
         for lm in similar_materials
     ]
@@ -2007,7 +2068,7 @@ def generate_recommendations(user_performance, similar_plans, technology):
             {
                 "name": "Practice Questions and take self assessments",
                 "description": "Consistently practice questions related to your areas of improvement.",
-                "resource_url": "http://localhost:3000/employee",
+                "resource_url": "http://localhost:3000/employee/#selfAssessment",
             },
             {
                 "name": "Explore Online Tutorials",

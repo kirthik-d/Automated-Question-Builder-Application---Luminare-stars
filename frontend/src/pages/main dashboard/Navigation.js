@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../auth/useAuth";
 
 const Navigation = () => {
-  const { login, logout, isAuthenticated, user, loading, getUserRole } = useAuth();
+  const { login, logout, isAuthenticated, user, loading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -11,7 +11,7 @@ const Navigation = () => {
   const handleSSOLogin = async () => {
     try {
       await login();
-      await getUserRole();
+      //await getUserRole();
 
       const role = localStorage.getItem("userRole");
       if (role) {
